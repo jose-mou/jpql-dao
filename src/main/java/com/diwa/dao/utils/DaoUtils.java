@@ -28,9 +28,7 @@ public final class DaoUtils {
             return type.getSimpleName();
         }
         String entityName = entity.name();
-        if (entityName == null) {
-            return type.getSimpleName();
-        } else if (!(entityName.length() > 0)) {
+        if (entityName == null || entityName.length() == 0) {
             return type.getSimpleName();
         } else {
             return entityName;

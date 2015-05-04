@@ -48,14 +48,14 @@ import java.util.Map.Entry;
 public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
 
     /**
-     * Número máximo de iteraciones que es tendrán en cuenta a la hora de generar los joins.
-     */
-    private static final int MAX_JOIN_BUCLE_ITERATION = 20;
-
-    /**
      * Clase de la entidad a la que pertenece el DAO.
      */
     private Class<T> type;
+
+    /**
+     * JPQL query generator.
+     */
+    private JPQLGenerator generator;
 
     /**
      * SessionFactory al que se encuentra asociado el DAO.
@@ -76,7 +76,8 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
      * Constructor por defecto.
      */
     public DAOImpl() {
-        type = getPersistentClass();
+        this.type = getPersistentClass();
+        generator = JPQLGenerator.getInstance();
     }
 
     /**
@@ -86,6 +87,7 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
      */
     public DAOImpl(final Class<T> type) {
         this.type = type;
+        generator = JPQLGenerator.getInstance();
     }
 
     @SuppressWarnings("unchecked")
@@ -151,26 +153,9 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
      * {@inheritdoc}
      */
     public void update(final Map<String, Serializable> attribute, final SearchInfo searchInfo) {
-        StringBuilder cadena = new StringBuilder("UPDATE ");
-        cadena.append(DaoUtils.getEntityName(type));
-        cadena.append(String.format(" %s SET ", Criteria.DEFAULT_ENTITY_ALIAS));
-        Map<String, Serializable> params = new HashMap<String, Serializable>();
-
-        for (Entry<String, Serializable> att : attribute.entrySet()) {
-            cadena.append(Criteria.DEFAULT_ENTITY_ALIAS).append(".");
-            cadena.append(att.getKey());
-            cadena.append(" = :");
-            StringBuilder varname = generateVarName(att.getKey(), att.getValue());
-            cadena.append(varname);
-            params.put(varname.toString(), att.getValue());
-            cadena.append(",");
-        }
-        cadena.deleteCharAt(cadena.length() - 1);
-        // Añade los parámetros generados en el where
-        params.putAll(appendWhereClausule(cadena, searchInfo));
-        logger.debug("Query final: " + cadena.toString());
-        Query query = createQuery(cadena.toString());
-        addCriteriaParams(query, params);
+        JPQLResult jpqlResult = generator.update(type, attribute, searchInfo);
+        Query query = createQuery(jpqlResult.getQuery());
+        addCriteriaParams(query, jpqlResult.getParameters());
         query.executeUpdate();
     }
 
@@ -280,56 +265,17 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
      * {@inheritdoc}
      */
     public Long count() {
-        String entityName = DaoUtils.getEntityName(type);
-        StringBuilder cadena = new StringBuilder("SELECT count(*) FROM ");
-        cadena.append(entityName);
-        cadena.append(" AS ").append(Criteria.DEFAULT_ENTITY_ALIAS);
-        logger.debug("Query final: " + cadena.toString());
-        Query query = createQuery(cadena.toString());
-        Long count = (Long) query.uniqueResult();
-        return count;
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    public Long count(final Criteria... criterias) {
-        SearchInfo searchInfo = new SearchInfo();
-        searchInfo.getCriterias().addAll(Arrays.asList(criterias));
-        return count(searchInfo);
+        return count(new SearchInfo());
     }
 
     /**
      * {@inheritdoc}
      */
     public Long count(final SearchInfo searchInfo) {
-        SearchInfo auxInfo = searchInfo;
-        StringBuilder query = new StringBuilder("SELECT ");
-        if (auxInfo.isDistinct()) {
-            query.append("DISTINCT(COUNT(e)) ");
-        } else {
-            query.append("COUNT(e) ");
-        }
-        if (!searchInfo.getFetches().isEmpty()) {
-            auxInfo = new SearchInfo();
-            auxInfo.setDistinct(searchInfo.isDistinct());
-            auxInfo.setEntities(searchInfo.getEntities());
-            auxInfo.setOrders(searchInfo.getOrders());
-            auxInfo.setOffset(searchInfo.getOffset());
-            auxInfo.setPageSize(searchInfo.getPageSize());
-            for (Criteria c : searchInfo.getCriterias()) {
-                if (!(c instanceof PersonalCriteria && !((PersonalCriteria) c).isApplyInCount())) {
-                    auxInfo.addCriteria(c);
-                }
-            }
-        }
-        query.append(generateFromClausule(auxInfo));
-        Map<String, Serializable> params = appendWhereClausule(query, auxInfo);
-        logger.debug("Query final: " + query.toString());
-        Query q = createQuery(query.toString());
-        addCriteriaParams(q, params);
-        Long count = (Long) q.uniqueResult();
-        return count;
+        JPQLResult jpqlResult = generator.count(type, searchInfo);
+        Query query = createQuery(jpqlResult.getQuery());
+        addCriteriaParams(query, jpqlResult.getParameters());
+        return (Long) query.uniqueResult();
     }
 
     /**
@@ -344,24 +290,10 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
      */
     @SuppressWarnings("unchecked")
     public <K extends Serializable> K aggregate(Aggregate aggregate, String field, SearchInfo searchInfo, Class<K> clazz) {
-        StringBuilder query = new StringBuilder("SELECT ");
-        query.append(aggregate.getOperator());
-        if (searchInfo.isDistinct()) {
-            query.append("(DISTINCT");
-        }
-        query.append(String.format("(%s.", Criteria.DEFAULT_ENTITY_ALIAS));
-        query.append(field);
-        query.append(")");
-        if (searchInfo.isDistinct()) {
-            query.append(")");
-        }
-        query.append(generateFromClausule(searchInfo));
-        Map<String, Serializable> params = appendWhereClausule(query, searchInfo);
-        logger.debug("Query final: " + query.toString());
-        Query q = createQuery(query.toString());
-        addCriteriaParams(q, params);
-        K count = (K) q.uniqueResult();
-        return count;
+        JPQLResult jpqlResult = generator.aggregate(type, aggregate, field, searchInfo);
+        Query query = createQuery(jpqlResult.getQuery());
+        addCriteriaParams(query, jpqlResult.getParameters());
+        return (K) query.uniqueResult();
     }
 
     /**
@@ -405,17 +337,9 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
      */
     @SuppressWarnings("unchecked")
     public SearchResult<T> find(final SearchInfo searchInfo) {
-        StringBuilder query = new StringBuilder("SELECT ");
-        if (searchInfo.isDistinct()) {
-            query.append("DISTINCT ");
-        }
-        query.append(Criteria.DEFAULT_ENTITY_ALIAS).append(" ");
-        query.append(generateFromClausule(searchInfo));
-        Map<String, Serializable> params = appendWhereClausule(query, searchInfo);
-        query.append(generateOrderClausule(searchInfo));
-        Query q = createQuery(query.toString());
-        addCriteriaParams(q, params);
-        logger.debug("Query final: " + query.toString());
+        JPQLResult jpqlResult = generator.find(type, searchInfo);
+        Query query = createQuery(jpqlResult.getQuery());
+        addCriteriaParams(query, jpqlResult.getParameters());
 
         Long total = count(searchInfo);
         int offset = searchInfo.getOffset();
@@ -423,10 +347,10 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
 
         // TODO Volver a la versión anterior, esta provoca fallos al llegar al final del listado
         if (offset != -1 && pageSize != -1) {
-            q.setFirstResult(offset);
-            q.setMaxResults(pageSize);
+            query.setFirstResult(offset);
+            query.setMaxResults(pageSize);
         }
-        return new SearchResult<T>(q.list(), total);
+        return new SearchResult<T>(query.list(), total);
     }
 
     /**
@@ -434,25 +358,18 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
      */
     @SuppressWarnings("unchecked")
     public List<T> findWithoutCount(final SearchInfo searchInfo) {
-        StringBuilder query = new StringBuilder("SELECT ");
-        if (searchInfo.isDistinct()) {
-            query.append("DISTINCT ");
-        }
-        query.append(Criteria.DEFAULT_ENTITY_ALIAS).append(" ");
-        query.append(generateFromClausule(searchInfo));
-        Map<String, Serializable> params = appendWhereClausule(query, searchInfo);
-        query.append(generateOrderClausule(searchInfo));
-        Query q = createQuery(query.toString());
-        addCriteriaParams(q, params);
+        JPQLResult jpqlResult = generator.find(type, searchInfo);
+        Query query = createQuery(jpqlResult.getQuery());
+        addCriteriaParams(query, jpqlResult.getParameters());
 
         int offset = searchInfo.getOffset();
         int pageSize = searchInfo.getPageSize();
 
         if (offset != -1 && pageSize != -1) {
-            q.setFirstResult(offset);
-            q.setMaxResults(pageSize);
+            query.setFirstResult(offset);
+            query.setMaxResults(pageSize);
         }
-        return q.list();
+        return query.list();
     }
 
     /**
@@ -469,431 +386,31 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
      */
     @SuppressWarnings("unchecked")
     public T findSingle(final SearchInfo searchInfo) {
-        StringBuilder query = new StringBuilder(String.format("SELECT DISTINCT(%s)", Criteria.DEFAULT_ENTITY_ALIAS));
-        query.append(generateFromClausule(searchInfo));
-        Map<String, Serializable> params = appendWhereClausule(query, searchInfo);
-        logger.debug("Query final: " + query.toString());
-        Query q = createQuery(query.toString());
-        addCriteriaParams(q, params);
-        return (T) q.uniqueResult();
+        JPQLResult jpqlResult = generator.find(type, searchInfo);
+        Query query = createQuery(jpqlResult.getQuery());
+        addCriteriaParams(query, jpqlResult.getParameters());
+        return (T) query.uniqueResult();
     }
 
     /**
-     * Componemos el FROM de la sentencia JPQL que va a ser ejecutada.
-     * 
-     * @param searchInfo Conjunto de joins/criterios que han sido utilizados en la query.
-     * @return Cadena JPQL con el FROM de la sentencia que va a ser ejecutada.
+     * {@inheritdoc}
      */
-    protected StringBuilder generateFromClausule(final SearchInfo searchInfo) {
-        // Componemos el from para la entidad base, sobre la que realizamos la query
-        StringBuilder query = new StringBuilder(" FROM ");
-        query.append(DaoUtils.getEntityName(type));
-        // La entidad base siempre se nombrará con el alias e
-        query.append(" AS ").append(Criteria.DEFAULT_ENTITY_ALIAS);
+    @Override
+    public ScrollResult<T> findQueryScroll(Query q) {
+        return new ScrollResult<T>(generateScrollResult(q, null));
+    }
 
-        List<Entity> entities = searchInfo.getEntities();
-        List<JoinEntity> joins = new ArrayList<JoinEntity>();
-
-        // En este for separamos las entidades en JoinEntity o DomainEntity. Además generamos las entidades de dominio
-        // ya que són las primeras en la consulta.
-        for (Entity e : entities) {
-            if (e instanceof JoinEntity) {
-                joins.add((JoinEntity) e);
-            } else if (e instanceof DomainEntity) {
-                generateDomainClausule((DomainEntity) e, query);
-            }
-        }
-
-        // Ordenamos los joins para que el orden sea correcto
-        joins = orderJoins(joins);
-        // Generamos los joins correspondientes
-        for (JoinEntity je : joins) {
-            generateJoinClausule(query, je);
-        }
-
-        // Generamos los fetchs
-        for (FetchJoin f : searchInfo.getFetches()) {
-            generateJoinClausule(query, f);
-        }
-        return query;
+    @Override
+    public ScrollResult<Map<String, Serializable>> findQueryMapScroll(Query si) {
+        return new ScrollResult<Map<String, Serializable>>(generateScrollResult(si, Transformers.ALIAS_TO_ENTITY_MAP));
     }
 
     /**
-     * Ordena los joins. Se generará una lista en el orden correcto de procesado.
+     * {@inheritdoc}
      */
-    protected List<JoinEntity> orderJoins(final List<JoinEntity> joins) {
-        List<JoinEntity> pendingProcess = new ArrayList<JoinEntity>(joins);
-        List<JoinEntity> orderJoins = new ArrayList<JoinEntity>(joins.size());
-        int count = 0;
-        while (!pendingProcess.isEmpty() && count < MAX_JOIN_BUCLE_ITERATION) {
-            for (Iterator<JoinEntity> it = pendingProcess.listIterator(); it.hasNext();) {
-                JoinEntity je = it.next();
-                Entity e = je.getEntity();
-                if (e == null || e instanceof DomainEntity || orderJoins.contains(e)) {
-                    // Si no tiene entidad, si pertenece a una entidad del dominio (ya añadida), si se ha añadido la
-                    // entidad al dominio.
-                    orderJoins.add(je);
-                    it.remove();
-                }
-            }
-            count++;
-        }
-        return orderJoins;
-    }
-
-    /**
-     * Genera la calusula correspondiente a las entidades.
-     */
-    protected StringBuilder generateDomainClausule(final DomainEntity de, final StringBuilder query) {
-        query.append(", ");
-        query.append(de.getClase().getSimpleName());
-        query.append(" ");
-        query.append(de.getAlias());
-        return query;
-    }
-
-    /**
-     * Añade a la cadena JPQL establecida, la cadena correspondiente al Join indicado.
-     * 
-     * @param query Cadena JPQL que contiene la consulta que va a lanzarse contra la BD.
-     * @param join Join que va a ser asociado a la sentencia.
-     */
-    protected void generateJoinClausule(final StringBuilder query, final Join join) {
-        query.append(" ");
-        query.append(join.getOperator().getOperator());
-        if (join.getEntity() == null) {
-            query.append(String.format(" %s.", Criteria.DEFAULT_ENTITY_ALIAS));
-        } else {
-            query.append(" ");
-            query.append(join.getEntity().getAlias());
-            query.append(".");
-        }
-        query.append(join.getName());
-        query.append(" ");
-        if (join instanceof Entity && ((Entity) join).getAlias() != null) {
-            query.append(((Entity) join).getAlias());
-        }
-    }
-
-    /**
-     * Modifica la cadena que contiene la consulta que va a lanzarse contra la BD, añadiendo el JPQL correspondiente a
-     * las condiciones de búsqueda establecidas. Devolverá los parámetros generados como consecuencia de los criterios
-     * de búsqueda.
-     * 
-     * @param query Cadena JPQL que contiene la consulta que va a lanzarse contra la BD.
-     * @param searchInfo Objeto <code>SearchInfo</code> que encapsula a los diferentes criterios establecidos en la
-     *            consulta.
-     * @return Parámetros que van a ser pasados a la Query y que contienen las variables de la sentencia JPQL junto a
-     *         los valores con los que tenemos que comparar.
-     */
-    protected Map<String, Serializable> appendWhereClausule(final StringBuilder query, final SearchInfo searchInfo) {
-        Map<String, Serializable> params = new HashMap<String, Serializable>();
-        List<Criteria> criterias = searchInfo.getCriterias();
-        if (!criterias.isEmpty()) {
-            query.append(" WHERE ");
-            for (Iterator<Criteria> it = criterias.listIterator(); it.hasNext();) {
-                Criteria criteria = it.next();
-                query.append(generateCriteriaClausule(criteria, params));
-                // Realizamos un AND de todos los criterios pasados
-                if (it.hasNext()) {
-                    query.append(" AND ");
-                }
-            }
-        }
-        return params;
-    }
-
-    /**
-     * Genera una cadena JPQL asociada a los diferentes criterios de ordenación establecidos en la búsqueda. Esta cadena
-     * generada corresponde a la parte del ORDER BY de una consulta a BD.
-     * 
-     * @param searchInfo Objeto <code>SearchInfo</code> que encapsula a los diferentes criterios establecidos en la
-     *            consulta.
-     * @return Cadena JPQL generada a partir de los criterios de ordenación establecidos.
-     */
-    protected StringBuilder generateOrderClausule(final SearchInfo searchInfo) {
-        StringBuilder clausule = new StringBuilder();
-        List<OrderBy> orders = searchInfo.getOrders();
-        boolean orderedById = false;
-        clausule.append(" ORDER BY ");
-        if (!orders.isEmpty()) {
-            for (Iterator<OrderBy> it = orders.listIterator(); it.hasNext();) {
-                OrderBy order = it.next();
-                if (order.getEntity() == null) {
-                    clausule.append(Criteria.DEFAULT_ENTITY_ALIAS);
-                } else {
-                    clausule.append(order.getEntity().getAlias());
-                }
-                clausule.append(".");
-                clausule.append(order.getName());
-                clausule.append(" ");
-                clausule.append(order.getDirection());
-                if (!orderedById && "id".equalsIgnoreCase(order.getName())) {
-                    orderedById = true;
-                }
-                if (it.hasNext()) {
-                    clausule.append(", ");
-                }
-            }
-            if (!orderedById) {
-                clausule.append(", ");
-                addOrderByIdClausule(clausule);
-            }
-        } else {
-            addOrderByIdClausule(clausule);
-        }
-
-        return clausule;
-    }
-
-    /**
-     * Añade el criterio de ordenación por identificador "id"
-     * 
-     * @param clausule la cadena JPQL que se esta generando a partir de los criterios de ordenación establecidos
-     */
-    protected void addOrderByIdClausule(StringBuilder clausule) {
-        clausule.append(Criteria.DEFAULT_ENTITY_ALIAS);
-        clausule.append(".");
-        clausule.append("id");
-        clausule.append(" ");
-        clausule.append(OrderDirection.ASC);
-    }
-
-    /**
-     * Genera una cadena JPQL asociada a un criterio de búsqueda, ya sea de tipo lógico como condicional.
-     * 
-     * @param criteria Criterio de búsqueda que generará la cadena JPQL.
-     * @param params Conjunto de parámetros que van a ser utilizados en la Query. A este conjunto se añadirán los
-     *            parámetros generados a partir del criterio (E/S).
-     * @return Cadena JPQL correspondiente al criterio.
-     */
-    protected StringBuilder generateCriteriaClausule(final Criteria criteria, final Map<String, Serializable> params) {
-        StringBuilder clausule = null;
-        if (criteria instanceof Conditional) {
-            clausule = generateConditionalClausule((Conditional) criteria, params);
-        } else if (criteria instanceof Logical) {
-            clausule = generateLogicalClausule((Logical) criteria, params);
-        } else if (criteria instanceof PersonalCriteria) {
-            clausule = generatePersonalCriteriaClausule((PersonalCriteria) criteria, params);
-        }
-        return clausule;
-    }
-
-    /**
-     * Genera una cadena JPQL asociada a una condición.
-     * 
-     * @param conditional Criterio de tipo condicional a partir del cual vamos a generar la cadena JPQL.
-     * @param params Conjunto de parámetros que van a ser utilizados en la Query. A este conjunto se añadirán los
-     *            parámetros generados a partir del criterio (E/S).
-     * @return Cadena JPQL correspondiente al criterio condicional.
-     */
-    protected StringBuilder generateConditionalClausule(final Conditional conditional,
-            final Map<String, Serializable> params) {
-        StringBuilder result = new StringBuilder();
-        if (conditional.getEntity() == null) {
-            result.append(Criteria.DEFAULT_ENTITY_ALIAS).append(".");
-        } else {
-            result.append(conditional.getEntity().getAlias());
-            result.append(".");
-        }
-        result.append(conditional.getName());
-        if (conditional instanceof CaseSensitiveConditional
-                && !((CaseSensitiveConditional) conditional).isCaseSensitive()) {
-            // En el caso de que el LIKE sea case sensitive realizamos un UPPER de los datos de la BD
-            result.insert(0, "UPPER(");
-            result.append(")");
-        }
-        result.append(" ");
-        result.append(conditional.getOperator().getOperator());
-        result.append(" ");
-        if (conditional instanceof BetweenConditional) {
-            BetweenConditional betweenConditional = (BetweenConditional) conditional;
-            StringBuilder varName = generateVarName(betweenConditional.getName(), betweenConditional.getValue1());
-            result.append(":");
-            result.append(varName);
-            params.put(varName.toString(), betweenConditional.getValue1());
-            result.append(" AND ");
-            StringBuilder varName2 = generateVarName(betweenConditional.getName(), betweenConditional.getValue2());
-            result.append(":");
-            result.append(varName2);
-            params.put(varName2.toString(), betweenConditional.getValue2());
-        } else if (conditional instanceof InConditional) {
-            InConditional inConditional = (InConditional) conditional;
-            StringBuilder varName = generateVarName(conditional.getName(), inConditional.getValues());
-            if (inConditional.getValues().size() == 1) {
-                // En el caso de sólo 1 elemento creamos un EQ
-                result.replace(result.lastIndexOf(ConditionalOperator.IN.getOperator()), result.length() - 1,
-                        ConditionalOperator.EQ.getOperator());
-                result.append(" :");
-                result.append(varName);
-                if (inConditional.isCaseSensitive()) {
-                    params.put(varName.toString(), inConditional.getValues().get(0));
-                } else {
-                    params.put(varName.toString(), inConditional.getValues().get(0).toString().toUpperCase());
-                }
-            } else if (inConditional.getValues().size() > 1) {
-                // Añadimos paréntesis aunque no lo diga la especificación de JPA 2.
-                // Ver incidencia : https://hibernate.onjira.com/browse/HHH-7407
-                result.append("(");
-                result.append(":");
-                result.append(varName);
-                result.append(")");
-                if (inConditional.isCaseSensitive()) {
-                    params.put(varName.toString(), (Serializable) inConditional.getValues());
-                } else {
-                    ArrayList<String> upperList = new ArrayList<String>(inConditional.getValues().size());
-                    for (Serializable e : inConditional.getValues()) {
-                        upperList.add(e.toString().toUpperCase());
-                    }
-                    params.put(varName.toString(), upperList);
-                }
-            }
-        } else if (conditional instanceof ValueComparison) {
-            ValueComparison valueComparison = (ValueComparison) conditional;
-            StringBuilder varName = generateVarName(valueComparison.getName(), valueComparison.getValue());
-            result.append(":");
-            result.append(varName);
-            if (valueComparison.isCaseSensitive()) {
-                params.put(varName.toString(), valueComparison.getValue());
-            } else {
-                params.put(varName.toString(), valueComparison.getValue().toString().toUpperCase());
-            }
-        } else if (conditional instanceof FieldComparison) {
-            FieldComparison fieldComparison = (FieldComparison) conditional;
-            String comparison;
-            if (fieldComparison.getEntity2() == null) {
-                comparison = Criteria.DEFAULT_ENTITY_ALIAS + ".";
-            } else {
-                comparison = fieldComparison.getEntity2().getAlias() + ".";
-            }
-            comparison = comparison + fieldComparison.getField();
-            if (fieldComparison.isCaseSensitive()) {
-                result.append(comparison);
-            } else {
-                result.append("UPPER(").append(comparison).append(")");
-            }
-        } else if (conditional instanceof LikeConditional) {
-            LikeConditional likeConditional = (LikeConditional) conditional;
-            StringBuilder varName = generateVarName(likeConditional.getName(), likeConditional.getValue());
-            result.append(":");
-            result.append(varName);
-            String value = likeConditional.getValue();
-            if (!likeConditional.isCaseSensitive()) {
-                value = value.toUpperCase();
-            }
-            if (likeConditional.isLeftWildcard()) {
-                value = "%" + value;
-            }
-            if (likeConditional.isRightWildcard()) {
-                value = value + "%";
-            }
-            params.put(varName.toString(), value);
-        }
-        return result;
-    }
-
-    /**
-     * Genera la sentencia JPQL correspondiente al criterio personalizado.
-     * 
-     * @param criteria Criterio personalizado.
-     * @return Cadena JPQL correspondiente al criterio.
-     */
-    protected StringBuilder generatePersonalCriteriaClausule(final PersonalCriteria criteria,
-            final Map<String, Serializable> params) {
-        String query = criteria.getQuery();
-        for (Entry<String, PersonalCriteria.ReplaceProperty> p : criteria.getProperties().entrySet()) {
-            String nuevo;
-            PersonalCriteria.ReplaceProperty newProperty = p.getValue();
-            if (newProperty.getReferenceEntity() == null) {
-                nuevo = String.format("%s.%s", Criteria.DEFAULT_ENTITY_ALIAS, newProperty.getTargetProperty());
-            } else {
-                nuevo = String.format("%s.%s", newProperty.getReferenceEntity().getAlias(),
-                        newProperty.getTargetProperty());
-            }
-            query.replaceAll(p.getKey(), nuevo);
-        }
-        for (Entry<String, Serializable> p : criteria.getParameters().entrySet()) {
-            if (query.contains(":" + p.getKey())) {
-                params.put(p.getKey(), p.getValue());
-            } else {
-                logger.warn("Se pasa como parámetro una variable que no es utilizada en el criterio.");
-            }
-        }
-        return new StringBuilder(query);
-    }
-
-    /**
-     * Genera la cadena JPQL correspondiente el criterio lógico indicado.
-     * 
-     * @param logical Criterio lógico a partir del cual vamos a generar la cadena JPQL.
-     * @param params Conjunto de parámetros que van a ser utilizados en la Query. A este conjunto se añadirán los
-     *            parámetros generados a partir del criterio lógico (E/S).
-     * @return Cadena JPQL correspondiente al criterio lógico.
-     */
-    protected StringBuilder generateLogicalClausule(final Logical logical, final Map<String, Serializable> params) {
-        StringBuilder clausule = new StringBuilder();
-        if (logical instanceof NotLogical) {
-            clausule.append("NOT (");
-            clausule.append(generateCriteriaClausule(((NotLogical) logical).getExpresion(), params));
-            clausule.append(")");
-        } else if (logical instanceof GroupLogical) {
-            GroupLogical groupLogical = (GroupLogical) logical;
-            Collection<Criteria> conditionals = groupLogical.getContitionals();
-            if (conditionals != null) {
-                if (conditionals.size() > 1) {
-                    clausule.append("(");
-                }
-                for (Iterator<Criteria> it = conditionals.iterator(); it.hasNext();) {
-                    Criteria criteria = it.next();
-                    clausule.append(generateCriteriaClausule(criteria, params));
-                    if (it.hasNext()) {
-                        clausule.append(" ");
-                        clausule.append(groupLogical.getOperator().getOperator());
-                        clausule.append(" ");
-                    }
-                }
-                if (conditionals.size() > 1) {
-                    clausule.append(")");
-                }
-            }
-        }
-
-        return clausule;
-    }
-
-    /**
-     * Añade a la query que vamos a ejecutar, un conjunto de parámetros, que contienen el nombre de la variable de
-     * parámetro y el valor con el que se va a comparar.
-     * 
-     * @param query Consulta que va a ser ejecutada
-     * @param params Map que contiene los nombres de la variables utilizados en la query, asociados con el valor con el
-     *            cual vamos a comparar.
-     */
-    protected void addCriteriaParams(final Query query, final Map<String, Serializable> params) {
-        for (Entry<String, Serializable> entry : params.entrySet()) {
-            if (entry.getValue() instanceof Collection<?>) {
-                query.setParameterList(entry.getKey(), (Collection<?>) entry.getValue());
-            } else {
-                query.setParameter(entry.getKey(), entry.getValue());
-            }
-        }
-    }
-
-    /**
-     * Genera un nombre de variable para el atributo indicado y el valor con el que vamos a comparar. Para ello tenemos
-     * en cuenta el hashCode del valor.
-     * 
-     * @param field Nombre del atributo
-     * @param value Valor que tiene el atributo y con el cual vamos a comparar.
-     * @return Nombre generado para la variable.
-     */
-    protected StringBuilder generateVarName(final String field, final Object value) {
-        StringBuilder varName = new StringBuilder(field.replace(".", "_"));
-        varName.append("_");
-        if (value != null) {
-            varName.append(Math.abs(value.hashCode()));
-        }
-        return varName;
+    @Override
+    public ScrollResult<Serializable> findQueryScroll(Query query, ResultTransformer transformer) {
+        return new ScrollResult<Serializable>(generateScrollResult(query, transformer));
     }
 
     /**
@@ -934,27 +451,6 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
     }
 
     /**
-     * {@inheritdoc}
-     */
-    @Override
-    public ScrollResult<T> findQueryScroll(Query q) {
-        return new ScrollResult<T>(generateScrollResult(q, null));
-    }
-
-    @Override
-    public ScrollResult<Map<String, Serializable>> findQueryMapScroll(Query si) {
-        return new ScrollResult<Map<String, Serializable>>(generateScrollResult(si, Transformers.ALIAS_TO_ENTITY_MAP));
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    @Override
-    public ScrollResult<Serializable> findQueryScroll(Query query, ResultTransformer transformer) {
-        return new ScrollResult<Serializable>(generateScrollResult(query, transformer));
-    }
-
-    /**
      *
      * @param query
      * @param transformer
@@ -972,24 +468,14 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
      * se indique un resultTransformer se aplicará.
      */
     protected ScrollableResults generateScrollResult(final SearchInfo si, ResultTransformer transformer) {
-
-        StringBuilder query = new StringBuilder("SELECT ");
-        if (si.isDistinct()) {
-            query.append(" DISTINCT ");
-        }
-        query.append(Criteria.DEFAULT_ENTITY_ALIAS).append(" ");
-        query.append(generateFromClausule(si));
-        Map<String, Serializable> params = appendWhereClausule(query, si);
-        query.append(generateOrderClausule(si));
-
-        Query q = createQuery(query.toString());
-        addCriteriaParams(q, params);
-        logger.debug("Query final: " + query.toString());
+        JPQLResult jpqlResult = generator.find(type, si);
+        Query query = createQuery(jpqlResult.getQuery());
+        addCriteriaParams(query, jpqlResult.getParameters());
         if (transformer != null) {
-            q.setResultTransformer(transformer);
+            query.setResultTransformer(transformer);
         }
 
-        return q.scroll();
+        return query.scroll();
     }
 
     /**
@@ -1000,6 +486,24 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
         Query queryObject = session.createQuery(queryString);
         queryObject.setCacheable(useCache);
         return queryObject;
+    }
+
+    /**
+     * Añade a la query que vamos a ejecutar, un conjunto de parámetros, que contienen el nombre de la variable de
+     * parámetro y el valor con el que se va a comparar.
+     *
+     * @param query Consulta que va a ser ejecutada
+     * @param params Map que contiene los nombres de la variables utilizados en la query, asociados con el valor con el
+     *            cual vamos a comparar.
+     */
+    protected void addCriteriaParams(final Query query, final Map<String, Serializable> params) {
+        for (Entry<String, Serializable> entry : params.entrySet()) {
+            if (entry.getValue() instanceof Collection<?>) {
+                query.setParameterList(entry.getKey(), (Collection<?>) entry.getValue());
+            } else {
+                query.setParameter(entry.getKey(), entry.getValue());
+            }
+        }
     }
 
     /**

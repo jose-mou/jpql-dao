@@ -167,16 +167,6 @@ public interface DAO<T, PK extends Serializable> {
 
     /**
      * Cuenta el número de entidades que hay en la BD, para la entidad del dominio asociada al DAO y que coinciden con
-     * los criterios indicados.
-     *
-     * @param criteria Criterios de búsqueda que han de cumplir las entidades de la BD
-     * @return Numero de entidades que hay para la entidad del dominio asociada al DAO y que cumplen los criterios
-     *         indicados.
-     */
-    Long count(Criteria... criteria);
-
-    /**
-     * Cuenta el número de entidades que hay en la BD, para la entidad del dominio asociada al DAO y que coinciden con
      * los criterios que contiene el searchInfo.
      *
      * @param searchInfo Contiene un conjunto de criterios de búsquedas

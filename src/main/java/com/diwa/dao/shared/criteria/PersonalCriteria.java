@@ -101,7 +101,7 @@ public class PersonalCriteria implements Criteria {
      * @param entity Entidad sobre la que definimos la propiedad.
      */
     public void addProperty(final String string, String targetProperty, Entity entity) {
-        properties.put(string, new ReplaceProperty(targetProperty));
+        properties.put(string, new ReplaceProperty(targetProperty, entity));
     }
 
     /**
