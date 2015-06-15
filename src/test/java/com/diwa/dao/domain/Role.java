@@ -15,12 +15,16 @@ public class Role {
     }
 
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy= GenerationType.AUTO)
     public long getRoleId () {
         return roleId;
     }
 
     public void setName (String name) {
         this.name = name;
+    }
+
+    private void setRoleId (long roleId) {
+        this.roleId = roleId;
     }
 }

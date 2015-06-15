@@ -1,9 +1,6 @@
 package com.diwa.dao.domain;
 
-import javax.persistence.Column;
-import javax.persistence.Entity;
-import javax.persistence.GeneratedValue;
-import javax.persistence.Id;
+import javax.persistence.*;
 
 /**
  * Created by josemo on 5/1/15.
@@ -12,7 +9,7 @@ import javax.persistence.Id;
 public class Profile {
 
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy= GenerationType.AUTO)
     private Long id;
 
     @Column(nullable = false, unique = true)

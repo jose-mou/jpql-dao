@@ -3,21 +3,12 @@ package com.diwa.dao;
 import com.diwa.dao.search.ScrollResult;
 import com.diwa.dao.shared.aggregate.Aggregate;
 import com.diwa.dao.shared.criteria.Criteria;
-import com.diwa.dao.shared.criteria.PersonalCriteria;
-import com.diwa.dao.shared.criteria.conditional.*;
-import com.diwa.dao.shared.criteria.logical.GroupLogical;
-import com.diwa.dao.shared.criteria.logical.Logical;
-import com.diwa.dao.shared.criteria.logical.NotLogical;
-import com.diwa.dao.shared.entity.*;
-import com.diwa.dao.shared.order.OrderBy;
-import com.diwa.dao.shared.order.OrderDirection;
+import com.diwa.dao.shared.criteria.conditional.ValueComparison;
+import com.diwa.dao.shared.entity.FetchJoin;
 import com.diwa.dao.shared.search.SearchInfo;
 import com.diwa.dao.shared.search.SearchResult;
 import com.diwa.dao.utils.DaoUtils;
-import org.hibernate.Query;
-import org.hibernate.ScrollableResults;
-import org.hibernate.Session;
-import org.hibernate.SessionFactory;
+import org.hibernate.*;
 import org.hibernate.transform.ResultTransformer;
 import org.hibernate.transform.Transformers;
 import org.slf4j.Logger;
@@ -81,13 +72,21 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
     }
 
     /**
+     * Constructor por defecto.
+     */
+    public DAOImpl(final Class<T> type, SessionFactory sessionFactory) {
+        this.type = type;
+        generator = JPQLGenerator.getInstance();
+        this.sessionFactory = sessionFactory;
+    }
+
+    /**
      * Constructor a partir de la entidad del dominio a la que accede el DAO.
      * 
      * @param type Clase que corresponde a la entidad del dominio a la que accede el DAO.
      */
     public DAOImpl(final Class<T> type) {
-        this.type = type;
-        generator = JPQLGenerator.getInstance();
+        this(type, null);
     }
 
     @SuppressWarnings("unchecked")
@@ -513,9 +512,13 @@ public class DAOImpl<T, PK extends Serializable> implements DAO<T, PK> {
      */
     protected Session getSession() {
         if (sessionFactory == null) {
-            logger.error("Existe más de un bean del tipo SessionFactory");
+            logger.error("Not found SessionFactory bean");
         }
-        return sessionFactory.getCurrentSession();
+        try {
+            return sessionFactory.getCurrentSession();
+        } catch (HibernateException e){
+            return sessionFactory.openSession();
+        }
     }
 
     /**

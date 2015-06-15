@@ -4,7 +4,7 @@
     <!-- POM Relationships -->
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.diwa</groupId>
-    <artifactId>Dao</artifactId>
+    <artifactId>jpql-dao</artifactId>
     <version>1.0.0-SNAPSHOT</version>
 
     <dependencies>
@@ -71,9 +71,21 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-web</artifactId>
-            <version>${spring.version}</version>
+            <groupId>cglib</groupId>
+            <artifactId>cglib</artifactId>
+            <version>3.1</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hsqldb</groupId>
+            <artifactId>hsqldb</artifactId>
+            <version>2.3.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hibernate</groupId>
+            <artifactId>hibernate-entitymanager</artifactId>
+            <version>${hibernate.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -110,87 +122,7 @@
     <description>JPQL DAO</description>
 
     <properties>
-        <spring.version>3.1.1.RELEASE</spring.version>
-        <hibernate.version>4.1.4.Final</hibernate.version>
-        <jdbc.mysql.version>5.0.5</jdbc.mysql.version>
+        <spring.version>4.1.6.RELEASE</spring.version>
+        <hibernate.version>4.3.8.Final</hibernate.version>
     </properties>
-
-    <!-- /////////////////// -->
-
-    <!-- Environment Information -->
-    <profiles>
-        <profile>
-            <id>mysql</id>
-            <activation>
-                <property>
-                    <name>db</name>
-                    <value>mysql</value>
-                </property>
-            </activation>
-            <properties>
-                <hibernate.jdbc.driver>com.mysql.jdbc.Driver</hibernate.jdbc.driver>
-                <hibernate.dialect>org.hibernate.dialect.MySQL5InnoDBDialect</hibernate.dialect>
-            </properties>
-            <dependencies>
-                <dependency>
-                    <groupId>mysql</groupId>
-                    <artifactId>mysql-connector-java</artifactId>
-                    <version>${jdbc.mysql.version}</version>
-                    <scope>test</scope>
-                </dependency>
-            </dependencies>
-        </profile>
-        <profile>
-            <id>hsqldb</id>
-            <activation>
-                <property>
-                    <name>!db</name>
-                </property>
-            </activation>
-            <properties>
-                <hibernate.jdbc.driver>org.hsqldb.jdbcDriver</hibernate.jdbc.driver>
-                <hibernate.dialect>org.hibernate.dialect.HSQLDialect</hibernate.dialect>
-            </properties>
-            <dependencies>
-                <dependency>
-                    <groupId>org.hsqldb</groupId>
-                    <artifactId>hsqldb</artifactId>
-                    <version>2.2.8</version>
-                    <scope>test</scope>
-                </dependency>
-            </dependencies>
-        </profile>
-        <profile>
-            <id>dev</id>
-            <activation>
-                <property>
-                    <name>env</name>
-                    <value>dev</value>
-                </property>
-            </activation>
-            <properties>
-                <hibernate.jdbc.url>jdbc:mysql://localhost:3306/dao</hibernate.jdbc.url>
-                <hibernate.jdbc.username>dao</hibernate.jdbc.username>
-                <hibernate.jdbc.password>dao</hibernate.jdbc.password>
-                <hibernate.hbm2ddl.auto>update</hibernate.hbm2ddl.auto>
-            </properties>
-        </profile>
-        <profile>
-            <id>test</id>
-            <activation>
-                <property>
-                    <name>!env</name>
-                </property>
-            </activation>
-            <properties>
-                <hibernate.jdbc.url>jdbc:hsqldb:mem:dao</hibernate.jdbc.url>
-                <hibernate.jdbc.username>sa</hibernate.jdbc.username>
-                <hibernate.jdbc.password></hibernate.jdbc.password>
-                <hibernate.hbm2ddl.auto>create</hibernate.hbm2ddl.auto>
-            </properties>
-        </profile>
-    </profiles>
-    <!-- /////////////////////// -->
-
-    <!-- /////////////////////// -->
 </project>
